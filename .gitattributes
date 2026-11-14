@@ -1,0 +1,16 @@
+# 统一使用 LF：Windows 侧写出的 CRLF 会让 Linux 下的脚本 shebang 失效、源码 diff 全变
+* text=auto eol=lf
+
+*.sh              text eol=lf
+*.cpp             text eol=lf
+*.cc              text eol=lf
+*.h               text eol=lf
+*.hpp             text eol=lf
+*.md              text eol=lf
+*.txt             text eol=lf
+*.jsonl           text eol=lf
+*.cmake           text eol=lf
+CMakeLists.txt    text eol=lf
+
+*.png             binary
+*.pdf             binary
