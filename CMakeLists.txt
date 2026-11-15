@@ -42,6 +42,12 @@ target_sources(mk_protocol PRIVATE
   src/protocol/messages.cpp
 )
 
+target_sources(mk_net PRIVATE
+  src/net/socket.cpp
+  src/net/event_loop.cpp
+  src/net/acceptor.cpp
+)
+
 # 依赖方向按 03 §7.3：只允许上层依赖下层。
 target_link_libraries(mk_protocol PUBLIC mk_common)
 target_link_libraries(mk_net PUBLIC mk_protocol)
@@ -97,4 +103,16 @@ if(BUILD_TESTING)
   )
   target_link_libraries(mk_protocol_tests PRIVATE mk_protocol)
   add_test(NAME protocol_unit COMMAND mk_protocol_tests)
+
+  add_executable(mk_net_tests
+    test/unit/test_net_main.cpp
+    test/unit/test_net_event_loop.cpp
+    test/unit/test_net_acceptor.cpp
+  )
+  target_include_directories(mk_net_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/unit
+  )
+  target_link_libraries(mk_net_tests PRIVATE mk_net)
+  add_test(NAME net_unit COMMAND mk_net_tests)
 endif()

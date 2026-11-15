@@ -1,9 +1,3 @@
 #include "minikafka/net/net.h"
 
-namespace minikafka {
-namespace net {
-
-// 骨架占位：业务逻辑在后续模块阶段实现。
-
-}  // namespace net
-}  // namespace minikafka
+// M3 网络层对外头文件汇总；实现见同目录 event_loop/socket/acceptor.cpp。
