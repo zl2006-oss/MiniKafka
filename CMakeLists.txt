@@ -50,6 +50,12 @@ target_sources(mk_net PRIVATE
   src/net/reactor_pool.cpp
 )
 
+target_sources(mk_broker PRIVATE
+  src/broker/topic_registry.cpp
+  src/broker/partition_manager.cpp
+  src/broker/service.cpp
+)
+
 target_sources(mk_storage PRIVATE
   src/storage/record.cpp
   src/storage/paths.cpp
@@ -148,4 +154,16 @@ if(BUILD_TESTING)
   )
   target_link_libraries(mk_storage_tests PRIVATE mk_storage)
   add_test(NAME storage_unit COMMAND mk_storage_tests)
+
+  add_executable(mk_broker_tests
+    test/unit/test_broker_main.cpp
+    test/unit/test_broker_topic.cpp
+    test/unit/test_broker_service.cpp
+  )
+  target_include_directories(mk_broker_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/unit
+  )
+  target_link_libraries(mk_broker_tests PRIVATE mk_broker)
+  add_test(NAME broker_unit COMMAND mk_broker_tests)
 endif()
