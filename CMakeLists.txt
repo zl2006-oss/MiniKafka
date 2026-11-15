@@ -62,6 +62,16 @@ target_sources(mk_broker PRIVATE
   src/broker/service.cpp
 )
 
+target_sources(mk_client PRIVATE
+  src/client/cli.cpp
+  src/client/connection.cpp
+  src/client/input.cpp
+  src/client/admin.cpp
+  src/client/producer.cpp
+  src/client/consumer.cpp
+  src/client/replay.cpp
+)
+
 target_sources(mk_storage PRIVATE
   src/storage/record.cpp
   src/storage/paths.cpp
@@ -185,4 +195,15 @@ if(BUILD_TESTING)
   )
   target_link_libraries(mk_broker_tests PRIVATE mk_broker)
   add_test(NAME broker_unit COMMAND mk_broker_tests)
+
+  add_executable(mk_client_tests
+    test/unit/test_client_main.cpp
+    test/unit/test_client_cli.cpp
+  )
+  target_include_directories(mk_client_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/unit
+  )
+  target_link_libraries(mk_client_tests PRIVATE mk_client)
+  add_test(NAME client_unit COMMAND mk_client_tests)
 endif()

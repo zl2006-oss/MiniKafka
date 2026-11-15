@@ -128,6 +128,11 @@ void TestAcceptor() {
 
   MK_EXPECT_TRUE(client_ok);
   MK_EXPECT_TRUE(accepted.load());
+  // 服务端在 write 完成后才置位 echoed；客户端 recv 可能先返回（内核已投递），
+  // 因此这里短暂等待，避免并发跑 ctest 时出现顺序误判。
+  for (int i = 0; i < 2000 && !echoed.load(); ++i) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
   MK_EXPECT_TRUE(echoed.load());
 
   (void)loop.QueueInLoop([&loop] { loop.Quit(); });
