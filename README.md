@@ -108,12 +108,13 @@ printf '%s\n' '{"key":"k1","value":"v1"}' '{"value":"v2"}' \
 ```bash
 bash scripts/build.sh                                  # 单元测试：8 个 CTest 目标全绿
 bash scripts/integration/e2e.sh                        # 基础链路 + 错误路径
-bash scripts/integration/v2_follow_mode.sh              # V2 跟随模式 / SIGTERM 补提交
+bash scripts/integration/v2_follow_mode.sh              # R18/R8 跟随模式 / SIGTERM 补提交
+bash scripts/integration/v2_kill9_resume.sh             # V2 消费者 kill -9 续消费
 bash scripts/integration/v9_static_assignment.sh        # V9 静态分配
 bash scripts/integration/v10_replay_readonly.sh         # V10 重放只读 + V11 顺序
 bash scripts/fault_injection/v1_kill9_recovery.sh       # V1 kill -9 恢复
-bash scripts/fault_injection/disk_full.sh               # 磁盘不足拒写
-bash scripts/fault_injection/v8_message_too_large.sh    # V8 部分失败与 1 MiB 边界
+bash scripts/fault_injection/disk_full.sh               # V6 磁盘满：拒写/可读/恢复
+bash scripts/fault_injection/v7_v8_message_limits.sh    # V7 超限拒绝 + V8 部分失败
 bash scripts/bench/run_bench.sh                         # V4 吞吐 + V5 延迟
 ```
 

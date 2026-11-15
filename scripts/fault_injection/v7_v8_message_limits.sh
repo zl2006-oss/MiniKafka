@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# V8 前半段（R17/R23）：1 MiB 记录上限与批内部分失败 —— 超限条目单独失败，
-# 同批合法条目仍成功，汇总给出 succeeded/failed 与 exit_reason。
+# V7 + V8 前半段（R17/R23/R24）：
+# - V7：单条超 1 MiB 明确拒绝、不截断、不静默，Broker 保持运行；
+# - V8：批内部分失败——超限条目单独失败，同批合法条目仍成功，
+#       汇总给出 succeeded/failed 与 exit_reason。
 # 说明：客户端在发送前即按 24B 头 + key + value 口径拒绝超限记录，因此不会占用 offset。
 set -euo pipefail
 
@@ -81,6 +83,20 @@ printf '{"value":"c"}\n' | "$MK" produce --topic big >"$WORK/next.out" 2>&1
 grep -q '"offset":4' "$WORK/next.out" \
   && pass "超限记录未占用 offset（下一条 offset=4）" \
   || fail "offset 出现空洞"
+
+# V7：拒绝超限消息后 Broker 仍存活且继续服务（未被超限负载影响）。
+if kill -0 "$BROKER_PID" 2>/dev/null; then
+  pass "超限拒绝后 Broker 仍在运行"
+else
+  fail "Broker 因超限消息退出"
+fi
+"$MK" topic list >"$WORK/list.out" 2>&1
+grep -q '"topic":"big"' "$WORK/list.out" \
+  && pass "拒绝后仍可正常响应请求" || fail "拒绝后 Broker 无响应"
+"$MK" replay --topic big --partition 0 >"$WORK/all.out" 2>&1
+# 合法记录共 5 条：3 行输入里 2 条 + 2 条全成功 + 1 条续写；超限那 1 条不在日志中。
+check_eq "日志未出现超限消息（记录数 = 5）" \
+  "$(grep -c '"topic":"big"' "$WORK/all.out")" "5"
 
 kill -TERM "$BROKER_PID"
 wait "$BROKER_PID" 2>/dev/null || true
