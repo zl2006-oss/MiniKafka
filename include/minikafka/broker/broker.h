@@ -84,9 +84,19 @@ class Broker {
   void HandleReplay(const protocol::Frame& frame, const ResponseSink& sink);
   void HandleGroupRequest(const protocol::Frame& frame,
                           const ResponseSink& sink);
+  void HandleOffsetFetch(const protocol::Frame& frame,
+                         const ResponseSink& sink);
+  void HandleOffsetCommit(const protocol::Frame& frame,
+                          const ResponseSink& sink);
 
   // 投递到 partition_key 所属 worker；队列满超时返回 false（不阻塞 IO 线程）。
   bool Submit(std::uint32_t partition_key, std::function<void()> task);
+  // 按 worker 下标直接投递（组请求按 hash(group) 分片，AD-17）。
+  bool SubmitToWorker(std::size_t worker_index, std::function<void()> task);
+  std::size_t GroupWorkerIndex(const std::string& group) const;
+  common::StatusOr<std::uint32_t> TopicPartitionCount(
+      const std::string& topic) const;
+  void EmitWarning(const std::string& detail);
   void RunWorker(std::size_t index);
   void StopWorkers();
 
@@ -105,6 +115,8 @@ class Broker {
 
   // 串行化 Topic 管理（创建/列表）；分区数不可变，故读路径不需要它。
   mutable std::mutex registry_mutex_;
+  // 各 Storage Worker 的告警可能并发写 stderr，统一在这里加锁。
+  mutable std::mutex warn_mutex_;
 
   std::atomic<bool> started_;
   std::atomic<bool> stopping_;

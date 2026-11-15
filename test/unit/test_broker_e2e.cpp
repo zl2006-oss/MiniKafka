@@ -157,6 +157,28 @@ struct Client {
   }
 
   bool CallPayload(std::uint16_t msg_type, const std::string& payload,
+                   minikafka::protocol::OffsetFetchResponse* response) {
+    Frame frame;
+    if (!RoundTrip(msg_type, payload, &frame)) {
+      return false;
+    }
+    return minikafka::protocol::DecodeOffsetFetchResponse(frame.payload,
+                                                          response)
+        .ok();
+  }
+
+  bool CallPayload(std::uint16_t msg_type, const std::string& payload,
+                   minikafka::protocol::OffsetCommitResponse* response) {
+    Frame frame;
+    if (!RoundTrip(msg_type, payload, &frame)) {
+      return false;
+    }
+    return minikafka::protocol::DecodeOffsetCommitResponse(frame.payload,
+                                                           response)
+        .ok();
+  }
+
+  bool CallPayload(std::uint16_t msg_type, const std::string& payload,
                    minikafka::protocol::FetchResponse* response) {
     Frame frame;
     if (!RoundTrip(msg_type, payload, &frame)) {
@@ -202,6 +224,10 @@ struct Client {
   Status Encode(const minikafka::protocol::OffsetFetchRequest& request,
                 std::string* payload) {
     return minikafka::protocol::EncodeOffsetFetchRequest(request, payload);
+  }
+  Status Encode(const minikafka::protocol::OffsetCommitRequest& request,
+                std::string* payload) {
+    return minikafka::protocol::EncodeOffsetCommitRequest(request, payload);
   }
 
   int fd;
@@ -367,26 +393,87 @@ void RunEndToEnd() {
   MK_EXPECT_EQ(rejected.status, 2u);
   MK_EXPECT_TRUE(rejected.results.empty());
 
-  // 7) M6 尚未实现：组请求显式回错误而不是假装成功
+  // 7) 组闭环：分配 → 提交 → 读回 → 不回退 → 越界整体拒绝
   minikafka::protocol::OffsetFetchRequest offset_fetch;
   offset_fetch.group = "g1";
   offset_fetch.topic = "orders";
   offset_fetch.consumer_index = 0u;
   offset_fetch.consumer_count = 1u;
-  Frame group_frame;
-  std::string group_payload;
-  MK_EXPECT_TRUE(minikafka::protocol::EncodeOffsetFetchRequest(
-                     offset_fetch, &group_payload)
-                     .ok());
-  MK_EXPECT_TRUE(client.RoundTrip(
-      static_cast<std::uint16_t>(MessageType::kOffsetFetch), group_payload,
-      &group_frame));
   minikafka::protocol::OffsetFetchResponse group_response;
-  MK_EXPECT_TRUE(minikafka::protocol::DecodeOffsetFetchResponse(
-                     group_frame.payload, &group_response)
-                     .ok());
-  MK_EXPECT_EQ(group_response.error_code, StatusCode::kInternalError);
-  MK_EXPECT_TRUE(group_response.assigned_partitions.empty());
+  MK_EXPECT_TRUE(client.Call(
+      static_cast<std::uint16_t>(MessageType::kOffsetFetch), offset_fetch,
+      &group_response));
+  MK_EXPECT_EQ(group_response.error_code, StatusCode::kOk);
+  MK_EXPECT_EQ(group_response.assigned_partitions.size(), 3u);
+  MK_EXPECT_EQ(group_response.entries.size(), 3u);
+  if (group_response.entries.size() == 3u) {
+    MK_EXPECT_FALSE(group_response.entries[0].has_committed);
+  }
+
+  minikafka::protocol::OffsetCommitRequest offset_commit;
+  offset_commit.group = "g1";
+  offset_commit.topic = "orders";
+  minikafka::protocol::OffsetCommitEntry commit_entry;
+  commit_entry.partition = 1u;
+  commit_entry.committed_offset = 1u;
+  offset_commit.entries.push_back(commit_entry);
+  commit_entry.partition = 2u;
+  commit_entry.committed_offset = 2u;
+  offset_commit.entries.push_back(commit_entry);
+  minikafka::protocol::OffsetCommitResponse commit_response;
+  MK_EXPECT_TRUE(client.Call(
+      static_cast<std::uint16_t>(MessageType::kOffsetCommit), offset_commit,
+      &commit_response));
+  MK_EXPECT_EQ(commit_response.error_code, StatusCode::kOk);
+  MK_EXPECT_EQ(commit_response.applied_count, 2u);
+
+  MK_EXPECT_TRUE(client.Call(
+      static_cast<std::uint16_t>(MessageType::kOffsetFetch), offset_fetch,
+      &group_response));
+  MK_EXPECT_EQ(group_response.error_code, StatusCode::kOk);
+  if (group_response.entries.size() == 3u) {
+    MK_EXPECT_TRUE(group_response.entries[1].has_committed);
+    MK_EXPECT_EQ(group_response.entries[1].committed_offset, 1u);
+    MK_EXPECT_TRUE(group_response.entries[2].has_committed);
+    MK_EXPECT_EQ(group_response.entries[2].committed_offset, 2u);
+  }
+
+  // 回退提交：位点不回退。
+  offset_commit.entries.clear();
+  commit_entry.partition = 1u;
+  commit_entry.committed_offset = 0u;
+  offset_commit.entries.push_back(commit_entry);
+  MK_EXPECT_TRUE(client.Call(
+      static_cast<std::uint16_t>(MessageType::kOffsetCommit), offset_commit,
+      &commit_response));
+  MK_EXPECT_EQ(commit_response.error_code, StatusCode::kOk);
+  MK_EXPECT_TRUE(client.Call(
+      static_cast<std::uint16_t>(MessageType::kOffsetFetch), offset_fetch,
+      &group_response));
+  if (group_response.entries.size() == 3u) {
+    MK_EXPECT_EQ(group_response.entries[1].committed_offset, 1u);
+  }
+
+  // 越界分区：整条提交被拒（S-13）。
+  offset_commit.entries.clear();
+  commit_entry.partition = 9u;
+  commit_entry.committed_offset = 3u;
+  offset_commit.entries.push_back(commit_entry);
+  MK_EXPECT_TRUE(client.Call(
+      static_cast<std::uint16_t>(MessageType::kOffsetCommit), offset_commit,
+      &commit_response));
+  MK_EXPECT_EQ(commit_response.error_code, StatusCode::kInvalidPartition);
+  MK_EXPECT_EQ(commit_response.applied_count, 0u);
+
+  // 非法槽位：客户端编码器先行拒绝（权威校验在 Broker 侧，单测已覆盖）。
+  minikafka::protocol::OffsetFetchRequest bad_slot = offset_fetch;
+  bad_slot.consumer_index = 2u;
+  bad_slot.consumer_count = 2u;
+  std::string bad_payload;
+  MK_EXPECT_EQ(minikafka::protocol::EncodeOffsetFetchRequest(bad_slot,
+                                                             &bad_payload)
+                   .code(),
+               StatusCode::kInvalidConsumerSlot);
 
   // 8) 落盘证据：分区日志文件里确实有字节（页缓存 ack，不要求 fsync）。
   const std::string log_path =
@@ -425,6 +512,19 @@ void RunEndToEnd() {
     MK_EXPECT_EQ(produced_again.status, 0u);
     if (!produced_again.results.empty()) {
       MK_EXPECT_EQ(produced_again.results[0].offset, 2u);
+    }
+
+    // 已提交位点同样跨重启保留（双槽位点文件）。
+    minikafka::protocol::OffsetFetchResponse restored;
+    MK_EXPECT_TRUE(second.Call(
+        static_cast<std::uint16_t>(MessageType::kOffsetFetch), offset_fetch,
+        &restored));
+    MK_EXPECT_EQ(restored.error_code, StatusCode::kOk);
+    if (restored.entries.size() == 3u) {
+      MK_EXPECT_TRUE(restored.entries[1].has_committed);
+      MK_EXPECT_EQ(restored.entries[1].committed_offset, 1u);
+      MK_EXPECT_TRUE(restored.entries[2].has_committed);
+      MK_EXPECT_EQ(restored.entries[2].committed_offset, 2u);
     }
   }
   restarted_broker.Stop();

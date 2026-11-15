@@ -7,10 +7,13 @@
 #include <condition_variable>
 #include <cstring>
 #include <deque>
+#include <iostream>
 #include <mutex>
 #include <thread>
 #include <utility>
 
+#include "minikafka/common/hash.h"
+#include "minikafka/group/coordinator.h"
 #include "minikafka/protocol/codec.h"
 #include "minikafka/protocol/messages.h"
 
@@ -37,6 +40,30 @@ std::size_t DefaultThreadCount() {
 
 std::uint16_t ResponseType(std::uint16_t request_type) {
   return static_cast<std::uint16_t>(request_type | 0x8000u);
+}
+
+// stderr 告警行的转义（R19：每行一个 JSON 对象）。
+std::string EscapeJson(const std::string& text) {
+  std::string out;
+  out.reserve(text.size() + 8u);
+  for (std::size_t i = 0; i < text.size(); ++i) {
+    const char ch = text[i];
+    if (ch == '"' || ch == '\\') {
+      out.push_back('\\');
+      out.push_back(ch);
+    } else if (ch == '\n') {
+      out += "\\n";
+    } else if (ch == '\r') {
+      out += "\\r";
+    } else if (ch == '\t') {
+      out += "\\t";
+    } else if (static_cast<unsigned char>(ch) < 0x20u) {
+      continue;
+    } else {
+      out.push_back(ch);
+    }
+  }
+  return out;
 }
 
 // 建 Topic 时等待各 worker 打开分区完成；用 shared_ptr 持有，避免任务晚于栈变量执行。
@@ -125,11 +152,17 @@ class Broker::TaskQueue {
 };
 
 struct Broker::WorkerContext {
-  WorkerContext(std::size_t worker_index, std::size_t high, std::size_t low)
-      : index(worker_index), queue(high, low) {}
+  WorkerContext(std::size_t worker_index, std::size_t high, std::size_t low,
+                const std::string& data_dir,
+                group::GroupCoordinator::WarningSink warning_sink)
+      : index(worker_index),
+        queue(high, low),
+        coordinator(data_dir, std::move(warning_sink)) {}
 
   std::size_t index;
   TaskQueue queue;
+  // AD-17：位点状态只由该 group 分片到的 worker 访问，故每个 worker 一份协调器。
+  group::GroupCoordinator coordinator;
   std::thread thread;
 };
 
@@ -184,7 +217,9 @@ common::Status Broker::Start() {
   const std::size_t worker_count = partitions_->worker_count();
   for (std::size_t i = 0; i < worker_count; ++i) {
     workers_.push_back(std::unique_ptr<WorkerContext>(new WorkerContext(
-        i, config_.queue_high_watermark, config_.queue_low_watermark)));
+        i, config_.queue_high_watermark, config_.queue_low_watermark,
+        config_.data_dir,
+        [this](const std::string& detail) { EmitWarning(detail); })));
   }
   for (std::size_t i = 0; i < worker_count; ++i) {
     workers_[i]->thread = std::thread([this, i] { RunWorker(i); });
@@ -267,6 +302,29 @@ bool Broker::Submit(std::uint32_t partition_key, std::function<void()> task) {
   }
   return workers_[index]->queue.Push(std::move(task),
                                      config_.queue_push_timeout_ms);
+}
+
+bool Broker::SubmitToWorker(std::size_t worker_index,
+                           std::function<void()> task) {
+  if (worker_index >= workers_.size()) {
+    return false;
+  }
+  return workers_[worker_index]->queue.Push(
+      std::move(task), config_.queue_push_timeout_ms);
+}
+
+// AD-17：hash(group) % M 决定该 group 的位点状态归哪个 worker。
+std::size_t Broker::GroupWorkerIndex(const std::string& group) const {
+  if (workers_.empty()) {
+    return 0u;
+  }
+  return static_cast<std::size_t>(common::Fnv1a32(group)) % workers_.size();
+}
+
+void Broker::EmitWarning(const std::string& detail) {
+  std::lock_guard<std::mutex> guard(warn_mutex_);
+  std::cerr << "{\"event\":\"warning\",\"detail\":\"" << EscapeJson(detail)
+            << "\"}" << std::endl;
 }
 
 std::uint16_t Broker::port() const {
@@ -537,30 +595,158 @@ void Broker::HandleReplay(const protocol::Frame& frame,
   }
 }
 
-// M5 只做路由：组分配与位点语义由 M6 实现，此处显式回不可用而不是假装成功。
 void Broker::HandleGroupRequest(const protocol::Frame& frame,
                                 const ResponseSink& sink) {
-  const bool is_fetch =
-      frame.msg_type == static_cast<std::uint16_t>(MessageType::kOffsetFetch);
-  std::string payload;
-  protocol::Encoder encoder(payload);
-  if (!protocol::EncodeResponsePrefix(
-           StatusCode::kInternalError,
-           "group coordination is provided by M6", &encoder)
-           .ok()) {
+  if (frame.msg_type ==
+      static_cast<std::uint16_t>(MessageType::kOffsetFetch)) {
+    HandleOffsetFetch(frame, sink);
     return;
   }
-  // 错误响应之后仍要补齐计数与数组字段，保证报文结构完整可解码。
-  if (is_fetch) {
-    (void)encoder.WriteU32(0u);  // assigned_count
-    (void)encoder.WriteU32(0u);  // entry_count
-    Reply(sink, static_cast<std::uint16_t>(MessageType::kOffsetFetchResponse),
-          frame.request_id, payload);
-  } else {
-    (void)encoder.WriteU32(0u);  // applied_count
-    Reply(sink, static_cast<std::uint16_t>(MessageType::kOffsetCommitResponse),
-          frame.request_id, payload);
+  HandleOffsetCommit(frame, sink);
+}
+
+// 05 §3.6：返回静态分配与已提交位点。分配是纯函数，位点状态在 group 分片 worker 上。
+void Broker::HandleOffsetFetch(const protocol::Frame& frame,
+                               const ResponseSink& sink) {
+  const std::uint64_t request_id = frame.request_id;
+  protocol::OffsetFetchRequest request;
+  const Status decode_status =
+      protocol::DecodeOffsetFetchRequest(frame.payload, &request);
+
+  StatusOr<std::uint32_t> partition_count =
+      decode_status.ok()
+          ? TopicPartitionCount(request.topic)
+          : StatusOr<std::uint32_t>(decode_status);
+  if (!partition_count.ok()) {
+    protocol::OffsetFetchResponse response;
+    response.error_code = partition_count.status().code();
+    response.message = partition_count.status().message();
+    std::string payload;
+    if (protocol::EncodeOffsetFetchResponse(response, &payload).ok()) {
+      Reply(sink,
+            static_cast<std::uint16_t>(MessageType::kOffsetFetchResponse),
+            request_id, payload);
+    }
+    return;
   }
+
+  const std::size_t worker = GroupWorkerIndex(request.group);
+  const std::uint32_t count = partition_count.value();
+  const bool submitted = SubmitToWorker(
+      worker, [this, request, count, worker, request_id, sink] {
+        protocol::OffsetFetchResponse response;
+        StatusOr<group::FetchOutcome> outcome =
+            workers_[worker]->coordinator.Fetch(
+                request.group, request.topic, request.consumer_index,
+                request.consumer_count, count);
+        if (!outcome.ok()) {
+          response.error_code = outcome.status().code();
+          response.message = outcome.status().message();
+        } else {
+          response.assigned_partitions = outcome.value().assigned_partitions;
+          response.entries.reserve(outcome.value().entries.size());
+          for (std::size_t i = 0; i < outcome.value().entries.size(); ++i) {
+            protocol::OffsetFetchEntry entry;
+            entry.partition = outcome.value().entries[i].partition;
+            entry.has_committed = outcome.value().entries[i].has_committed;
+            entry.committed_offset =
+                outcome.value().entries[i].committed_offset;
+            response.entries.push_back(entry);
+          }
+        }
+        std::string payload;
+        if (protocol::EncodeOffsetFetchResponse(response, &payload).ok()) {
+          Reply(sink,
+                static_cast<std::uint16_t>(MessageType::kOffsetFetchResponse),
+                request_id, payload);
+        }
+      });
+  if (submitted) {
+    return;
+  }
+
+  protocol::OffsetFetchResponse response;
+  response.error_code = StatusCode::kBrokerUnavailable;
+  response.message = "storage worker queue is full";
+  std::string payload;
+  if (protocol::EncodeOffsetFetchResponse(response, &payload).ok()) {
+    Reply(sink, static_cast<std::uint16_t>(MessageType::kOffsetFetchResponse),
+          request_id, payload);
+  }
+}
+
+// 05 §3.7 + S-13：全量快照合并、同分区取 max 不回退、任一越界整体不应用。
+void Broker::HandleOffsetCommit(const protocol::Frame& frame,
+                                const ResponseSink& sink) {
+  const std::uint64_t request_id = frame.request_id;
+  protocol::OffsetCommitRequest request;
+  const Status decode_status =
+      protocol::DecodeOffsetCommitRequest(frame.payload, &request);
+
+  StatusOr<std::uint32_t> partition_count =
+      decode_status.ok()
+          ? TopicPartitionCount(request.topic)
+          : StatusOr<std::uint32_t>(decode_status);
+  if (!partition_count.ok()) {
+    protocol::OffsetCommitResponse response;
+    response.error_code = partition_count.status().code();
+    response.message = partition_count.status().message();
+    std::string payload;
+    if (protocol::EncodeOffsetCommitResponse(response, &payload).ok()) {
+      Reply(sink,
+            static_cast<std::uint16_t>(MessageType::kOffsetCommitResponse),
+            request_id, payload);
+    }
+    return;
+  }
+
+  std::vector<storage::OffsetEntry> updates;
+  updates.reserve(request.entries.size());
+  for (std::size_t i = 0; i < request.entries.size(); ++i) {
+    storage::OffsetEntry entry;
+    entry.partition = request.entries[i].partition;
+    entry.committed_offset = request.entries[i].committed_offset;
+    updates.push_back(entry);
+  }
+
+  const std::size_t worker = GroupWorkerIndex(request.group);
+  const std::uint32_t count = partition_count.value();
+  const bool submitted = SubmitToWorker(
+      worker, [this, request, updates, count, worker, request_id, sink] {
+        protocol::OffsetCommitResponse response;
+        StatusOr<std::uint32_t> applied = workers_[worker]->coordinator.Commit(
+            request.group, request.topic, updates, count);
+        if (!applied.ok()) {
+          response.error_code = applied.status().code();
+          response.message = applied.status().message();
+        } else {
+          response.applied_count = applied.value();
+        }
+        std::string payload;
+        if (protocol::EncodeOffsetCommitResponse(response, &payload).ok()) {
+          Reply(sink,
+                static_cast<std::uint16_t>(MessageType::kOffsetCommitResponse),
+                request_id, payload);
+        }
+      });
+  if (submitted) {
+    return;
+  }
+
+  protocol::OffsetCommitResponse response;
+  response.error_code = StatusCode::kBrokerUnavailable;
+  response.message = "storage worker queue is full";
+  std::string payload;
+  if (protocol::EncodeOffsetCommitResponse(response, &payload).ok()) {
+    Reply(sink, static_cast<std::uint16_t>(MessageType::kOffsetCommitResponse),
+          request_id, payload);
+  }
+}
+
+common::StatusOr<std::uint32_t> Broker::TopicPartitionCount(
+    const std::string& topic) const {
+  std::lock_guard<std::mutex> guard(registry_mutex_);
+  return registry_->PartitionCount(topic);
 }
 
 common::Status Broker::DispatchSync(const protocol::Frame& request,

@@ -36,6 +36,11 @@ target_sources(mk_common PRIVATE
   src/common/crc32.cpp
 )
 
+target_sources(mk_group PRIVATE
+  src/group/assignment.cpp
+  src/group/coordinator.cpp
+)
+
 target_sources(mk_protocol PRIVATE
   src/protocol/codec.cpp
   src/protocol/frame.cpp
@@ -155,6 +160,18 @@ if(BUILD_TESTING)
   )
   target_link_libraries(mk_storage_tests PRIVATE mk_storage)
   add_test(NAME storage_unit COMMAND mk_storage_tests)
+
+  add_executable(mk_group_tests
+    test/unit/test_group_main.cpp
+    test/unit/test_group_assignment.cpp
+    test/unit/test_group_coordinator.cpp
+  )
+  target_include_directories(mk_group_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/unit
+  )
+  target_link_libraries(mk_group_tests PRIVATE mk_group)
+  add_test(NAME group_unit COMMAND mk_group_tests)
 
   add_executable(mk_broker_tests
     test/unit/test_broker_main.cpp
