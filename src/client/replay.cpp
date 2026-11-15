@@ -41,8 +41,6 @@ Status ConnectDefault(BrokerConnection* connection) {
   return connection->Connect(address.host, address.port);
 }
 
-bool Wants(Args* args, const std::string& name) { return args->Has(name); }
-
 }  // namespace
 
 int RunReplay(const std::vector<std::string>& tokens) {
@@ -80,7 +78,7 @@ int RunReplay(const std::vector<std::string>& tokens) {
   }
   // count 缺省表示"读到末尾"：用 0 交给 Broker 解释（05 §3.8）。
   std::uint64_t remaining = 0;
-  const bool has_count = Wants(&args, "count");
+  const bool has_count = args.Has("count");
   if (has_count && (!ParseU64(args.GetString("count"), &remaining) ||
                     remaining == 0u)) {
     sink.WriteError(
