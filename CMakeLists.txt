@@ -51,6 +51,7 @@ target_sources(mk_net PRIVATE
 )
 
 target_sources(mk_broker PRIVATE
+  src/broker/broker.cpp
   src/broker/topic_registry.cpp
   src/broker/partition_manager.cpp
   src/broker/service.cpp
@@ -159,6 +160,7 @@ if(BUILD_TESTING)
     test/unit/test_broker_main.cpp
     test/unit/test_broker_topic.cpp
     test/unit/test_broker_service.cpp
+    test/unit/test_broker_e2e.cpp
   )
   target_include_directories(mk_broker_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include

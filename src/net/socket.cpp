@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <cstring>
 #include <fcntl.h>
+#include <string>
 #include <utility>
 
 namespace minikafka {
@@ -72,7 +73,8 @@ Status Socket::Bind(const sockaddr_in& address) {
   }
   if (::bind(fd_.Get(), reinterpret_cast<const sockaddr*>(&address),
              sizeof(address)) != 0) {
-    return Status(StatusCode::kInternalError, "bind() failed");
+    return Status(StatusCode::kInternalError,
+                  std::string("bind() failed: ") + std::strerror(errno));
   }
   return Status();
 }

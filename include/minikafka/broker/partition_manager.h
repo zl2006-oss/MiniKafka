@@ -33,8 +33,19 @@ class PartitionManager {
   PartitionManager& operator=(const PartitionManager&) = delete;
 
   // 打开 topic 的全部分区（幂等）。单个分区打不开只记 warning，不阻断其余分区（R30）。
+  // 启动恢复阶段在单线程内调用；运行期新建 Topic 请用下面两个方法分别投递到所属 worker。
   common::Status OpenTopic(const std::string& topic,
                            std::uint32_t partition_count);
+
+  // 打开单个分区（幂等）。必须在"该分区所属 Storage Worker 线程"上调用（AD-05）。
+  common::Status OpenPartition(const std::string& topic,
+                               std::uint32_t partition,
+                               std::uint32_t partition_count);
+
+  // 发布 topic 的分区数。必须在对应 OpenPartition 任务入队之后调用，
+  // 否则新 Topic 的 Produce 会先看到"Topic 存在但分区未打开"。
+  void PublishTopicCount(const std::string& topic,
+                         std::uint32_t partition_count);
 
   // 校验 topic 是否存在、partition 是否越界，并返回该分区的存储门面。
   // 错误码：kTopicNotFound / kInvalidPartition / kStorageUnavailable。

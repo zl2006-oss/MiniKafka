@@ -80,38 +80,50 @@ const storage::StorageWorker& PartitionManager::worker(
 common::Status PartitionManager::OpenTopic(const std::string& topic,
                                            std::uint32_t partition_count) {
   for (std::uint32_t partition = 0; partition < partition_count; ++partition) {
-    const std::uint32_t key = PartitionKeyFor(topic, partition);
-    const std::size_t index = pool_.WorkerIndexFor(key);
-    if (workers_[index].Find(key) != nullptr) {
-      continue;  // 幂等：已打开的分区不重复打开
+    const Status status = OpenPartition(topic, partition, partition_count);
+    if (!status.ok()) {
+      return status;
     }
+  }
+  PublishTopicCount(topic, partition_count);
+  return Status();
+}
 
-    std::string directory;
-    const Status path_status =
-        storage::PartitionDirectory(data_dir_, topic, partition,
-                                    partition_count, &directory);
-    if (!path_status.ok()) {
-      return path_status;
-    }
+void PartitionManager::PublishTopicCount(const std::string& topic,
+                                         std::uint32_t partition_count) {
+  PublishTopic(topic, partition_count);
+}
 
-    StatusOr<PartitionStore> opened =
-        PartitionStore::Open(directory, segment_bytes_, disk_threshold_bytes_);
-    if (!opened.ok()) {
-      AddWarning("partition open failed: " + topic + "/" +
-                 std::to_string(partition) + ": " +
-                 opened.status().message());
-      continue;
-    }
-    if (!opened.value().ready()) {
-      AddWarning("partition unavailable: " + topic + "/" +
-                 std::to_string(partition) + ": " + opened.value().warning());
-    }
-    std::unique_ptr<PartitionStore> owner(
-        new PartitionStore(std::move(opened).value()));
-    workers_[index].AddPartition(key, std::move(owner));
+common::Status PartitionManager::OpenPartition(
+    const std::string& topic, std::uint32_t partition,
+    std::uint32_t partition_count) {
+  const std::uint32_t key = PartitionKeyFor(topic, partition);
+  const std::size_t index = pool_.WorkerIndexFor(key);
+  if (workers_[index].Find(key) != nullptr) {
+    return Status();  // 幂等：已打开的分区不重复打开
   }
 
-  PublishTopic(topic, partition_count);
+  std::string directory;
+  const Status path_status = storage::PartitionDirectory(
+      data_dir_, topic, partition, partition_count, &directory);
+  if (!path_status.ok()) {
+    return path_status;
+  }
+
+  StatusOr<PartitionStore> opened =
+      PartitionStore::Open(directory, segment_bytes_, disk_threshold_bytes_);
+  if (!opened.ok()) {
+    AddWarning("partition open failed: " + topic + "/" +
+               std::to_string(partition) + ": " + opened.status().message());
+    return Status();
+  }
+  if (!opened.value().ready()) {
+    AddWarning("partition unavailable: " + topic + "/" +
+               std::to_string(partition) + ": " + opened.value().warning());
+  }
+  std::unique_ptr<PartitionStore> owner(
+      new PartitionStore(std::move(opened).value()));
+  workers_[index].AddPartition(key, std::move(owner));
   return Status();
 }
 
