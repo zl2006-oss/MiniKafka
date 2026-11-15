@@ -50,6 +50,11 @@ target_sources(mk_net PRIVATE
   src/net/reactor_pool.cpp
 )
 
+target_sources(mk_storage PRIVATE
+  src/storage/record.cpp
+  src/storage/paths.cpp
+)
+
 # 依赖方向按 03 §7.3：只允许上层依赖下层。
 target_link_libraries(mk_protocol PUBLIC mk_common)
 target_link_libraries(mk_net PUBLIC mk_protocol)
@@ -118,4 +123,16 @@ if(BUILD_TESTING)
   )
   target_link_libraries(mk_net_tests PRIVATE mk_net)
   add_test(NAME net_unit COMMAND mk_net_tests)
+
+  add_executable(mk_storage_tests
+    test/unit/test_storage_main.cpp
+    test/unit/test_storage_record.cpp
+    test/unit/test_storage_path.cpp
+  )
+  target_include_directories(mk_storage_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/unit
+  )
+  target_link_libraries(mk_storage_tests PRIVATE mk_storage)
+  add_test(NAME storage_unit COMMAND mk_storage_tests)
 endif()
