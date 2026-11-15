@@ -58,6 +58,8 @@ target_sources(mk_storage PRIVATE
   src/storage/segment_set.cpp
   src/storage/offset_file.cpp
   src/storage/topic_meta.cpp
+  src/storage/recovery.cpp
+  src/storage/storage_worker.cpp
 )
 
 # 依赖方向按 03 §7.3：只允许上层依赖下层。
@@ -137,6 +139,8 @@ if(BUILD_TESTING)
     test/unit/test_storage_index.cpp
     test/unit/test_storage_offset.cpp
     test/unit/test_storage_meta.cpp
+    test/unit/test_storage_recovery.cpp
+    test/unit/test_storage_worker.cpp
   )
   target_include_directories(mk_storage_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include

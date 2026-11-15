@@ -22,6 +22,13 @@ class SegmentSet {
                                              std::uint64_t base_offset,
                                              std::uint64_t segment_bytes);
 
+  // 打开既有分段目录：按 base_offset 升序，最后一个为 active。
+  // 封存段的 next_offset 取下一段 base，保证 ReadAt 的范围判断正确；
+  // active_next_offset 由 RecoverPartition 扫描得出。
+  static common::StatusOr<SegmentSet> Open(const std::string& directory,
+                                           std::uint64_t segment_bytes,
+                                           std::uint64_t active_next_offset);
+
   SegmentSet(SegmentSet&&) noexcept = default;
   SegmentSet& operator=(SegmentSet&&) noexcept = default;
   SegmentSet(const SegmentSet&) = delete;
@@ -40,6 +47,8 @@ class SegmentSet {
 
  private:
   SegmentSet(std::unique_ptr<Segment> active, std::uint64_t segment_bytes);
+  SegmentSet(std::vector<std::unique_ptr<Segment>> sealed,
+             std::unique_ptr<Segment> active, std::uint64_t segment_bytes);
 
   std::uint64_t segment_bytes_;
   std::vector<std::unique_ptr<Segment>> sealed_;
