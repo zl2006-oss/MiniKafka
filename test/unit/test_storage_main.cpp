@@ -6,6 +6,8 @@ void TestStorageRecord();
 void TestStoragePath();
 void TestStorageSegment();
 void TestStorageIndex();
+void TestStorageOffset();
+void TestStorageMeta();
 
 int mk_test::g_failures = 0;
 
@@ -14,6 +16,8 @@ int main() {
   TestStoragePath();
   TestStorageSegment();
   TestStorageIndex();
+  TestStorageOffset();
+  TestStorageMeta();
 
   if (mk_test::g_failures != 0) {
     std::cerr << mk_test::g_failures << " storage test failure(s)\n";

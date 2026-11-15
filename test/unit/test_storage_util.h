@@ -3,6 +3,7 @@
 
 #include <dirent.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <string>
@@ -32,7 +33,12 @@ inline void RemoveTempDirectory(const std::string& directory) {
         continue;
       }
       const std::string path = directory + "/" + name;
-      ::unlink(path.c_str());
+      struct stat st;
+      if (::lstat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+        RemoveTempDirectory(path);
+      } else {
+        ::unlink(path.c_str());
+      }
     }
     ::closedir(dir);
   }
