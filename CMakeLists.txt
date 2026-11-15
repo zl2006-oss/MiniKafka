@@ -33,6 +33,13 @@ target_sources(mk_common PRIVATE
   src/common/backoff.cpp
   src/common/event_sink.cpp
   src/common/hash.cpp
+  src/common/crc32.cpp
+)
+
+target_sources(mk_protocol PRIVATE
+  src/protocol/codec.cpp
+  src/protocol/frame.cpp
+  src/protocol/messages.cpp
 )
 
 # 依赖方向按 03 §7.3：只允许上层依赖下层。
@@ -75,4 +82,19 @@ if(BUILD_TESTING)
   )
   target_link_libraries(mk_common_tests PRIVATE mk_common)
   add_test(NAME common_unit COMMAND mk_common_tests)
+
+  add_executable(mk_protocol_tests
+    test/unit/test_protocol_main.cpp
+    test/unit/test_protocol_crc.cpp
+    test/unit/test_protocol_frame.cpp
+    test/unit/test_protocol_decoder.cpp
+    test/unit/test_protocol_messages.cpp
+    test/unit/test_protocol_produce.cpp
+  )
+  target_include_directories(mk_protocol_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/unit
+  )
+  target_link_libraries(mk_protocol_tests PRIVATE mk_protocol)
+  add_test(NAME protocol_unit COMMAND mk_protocol_tests)
 endif()

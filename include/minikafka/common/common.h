@@ -4,6 +4,7 @@
 #include "minikafka/common/args.h"
 #include "minikafka/common/backoff.h"
 #include "minikafka/common/clock.h"
+#include "minikafka/common/crc32.h"
 #include "minikafka/common/defaults.h"
 #include "minikafka/common/event_sink.h"
 #include "minikafka/common/hash.h"
