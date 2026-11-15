@@ -53,6 +53,9 @@ target_sources(mk_net PRIVATE
 target_sources(mk_storage PRIVATE
   src/storage/record.cpp
   src/storage/paths.cpp
+  src/storage/sparse_index.cpp
+  src/storage/segment.cpp
+  src/storage/segment_set.cpp
 )
 
 # 依赖方向按 03 §7.3：只允许上层依赖下层。
@@ -128,6 +131,8 @@ if(BUILD_TESTING)
     test/unit/test_storage_main.cpp
     test/unit/test_storage_record.cpp
     test/unit/test_storage_path.cpp
+    test/unit/test_storage_segment.cpp
+    test/unit/test_storage_index.cpp
   )
   target_include_directories(mk_storage_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
