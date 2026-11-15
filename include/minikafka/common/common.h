@@ -1,12 +1,13 @@
 #ifndef MINIKAFKA_COMMON_COMMON_H_
 #define MINIKAFKA_COMMON_COMMON_H_
 
-namespace minikafka {
-namespace common {
-
-// M1 公共基础模块占位；业务实现按 02 §3.2 在后续模块阶段加入。
-
-}  // namespace common
-}  // namespace minikafka
+#include "minikafka/common/args.h"
+#include "minikafka/common/backoff.h"
+#include "minikafka/common/clock.h"
+#include "minikafka/common/defaults.h"
+#include "minikafka/common/event_sink.h"
+#include "minikafka/common/hash.h"
+#include "minikafka/common/json.h"
+#include "minikafka/common/status.h"
 
 #endif  // MINIKAFKA_COMMON_COMMON_H_
