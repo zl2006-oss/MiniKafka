@@ -46,6 +46,8 @@ target_sources(mk_net PRIVATE
   src/net/socket.cpp
   src/net/event_loop.cpp
   src/net/acceptor.cpp
+  src/net/connection.cpp
+  src/net/reactor_pool.cpp
 )
 
 # 依赖方向按 03 §7.3：只允许上层依赖下层。
@@ -108,6 +110,7 @@ if(BUILD_TESTING)
     test/unit/test_net_main.cpp
     test/unit/test_net_event_loop.cpp
     test/unit/test_net_acceptor.cpp
+    test/unit/test_net_reactor_pool.cpp
   )
   target_include_directories(mk_net_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
