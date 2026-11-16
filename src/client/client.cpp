@@ -3,7 +3,8 @@
 namespace minikafka {
 namespace client {
 
-// 骨架占位：业务逻辑在后续模块阶段实现。
+// M7 客户端 CLI 对外头文件汇总；实现见同目录 cli / connection / input /
+// admin / producer / consumer / replay.cpp。
 
 }  // namespace client
 }  // namespace minikafka

@@ -3,7 +3,8 @@
 namespace minikafka {
 namespace group {
 
-// 骨架占位：业务逻辑在后续模块阶段实现。
+// M6 消费组协调对外头文件汇总；实现见同目录 assignment.cpp（静态分配）与
+// coordinator.cpp（位点协调器）。
 
 }  // namespace group
 }  // namespace minikafka
