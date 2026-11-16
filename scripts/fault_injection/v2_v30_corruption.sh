@@ -94,7 +94,7 @@ grep -q '"status":"ok"' "$WORK/produce.out" \
   && pass "恢复后 healthy 仍可写" || fail "healthy 写入失败"
 "$MK" consume --topic healthy --group gverify --consumer-index 0 \
   --consumer-count 1 --auto-commit-interval 1s --exit-at-end \
-  >"$WORK/verify.out" 2>&1
+  >"$WORK/verify.out" 2>"$WORK/verify.err"
 check_eq "新 group 读到 4 条" \
   "$(grep -c '"topic":"healthy"' "$WORK/verify.out" || true)" "4"
 

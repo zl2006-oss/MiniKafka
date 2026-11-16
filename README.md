@@ -25,7 +25,7 @@ src/                    实现，按模块分目录；src/main.cpp 为唯一产�
 test/unit/              单元测试（自研断言 + CTest）
 scripts/build.sh        配置 + 构建 + ctest
 scripts/integration/    端到端验收（V2/V9/V10/V11）
-scripts/fault_injection/ 故障注入（V1、磁盘不足、1 MiB 边界与批内部分失败）
+scripts/fault_injection/ 故障注入（V1、磁盘不足、1 MiB 边界、批内部分失败、背压重试、损坏恢复）
 scripts/bench/          吞吐与延迟实测（V4/V5）
 docs/                   需求、设计、规约、偏差记录
 prototype/              早期原型与 CLI 交互规范
@@ -120,6 +120,7 @@ bash scripts/fault_injection/v7_v8_message_limits.sh    # V7 超限拒绝 + V8 �
 bash scripts/fault_injection/v8_batch_retry.sh          # V8 批量重试耗尽 + 分区阻塞
 bash scripts/fault_injection/v2_commit_failure.sh       # R8 位点提交失败重试 + 告警
 bash scripts/fault_injection/v2_v30_corruption.sh       # R28/R30 位点/元数据损坏恢复
+bash scripts/fault_injection/r24_backpressure_retry.sh   # R24/D-04 队列背压重试（假 Broker 注入）
 bash scripts/bench/run_bench.sh                         # V4 吞吐 + V5 延迟
 bash scripts/build-sanitize.sh                          # ASan+UBSan 单测（可选 SANITIZE=thread）
 ```

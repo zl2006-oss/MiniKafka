@@ -64,6 +64,7 @@ run_step "V1: Broker kill -9 恢复与残缺尾部截断" "scripts/fault_injecti
 run_step "V6: 磁盘满三阶段" "scripts/fault_injection/disk_full.sh"
 run_step "V7/V8: 超限拒绝与批内部分失败" "scripts/fault_injection/v7_v8_message_limits.sh"
 run_step "V8: 批量重试耗尽与分区阻塞" "scripts/fault_injection/v8_batch_retry.sh"
+run_step "R24/D-04: 请求级背压（broker_unavailable）重试" "scripts/fault_injection/r24_backpressure_retry.sh"
 run_step "V2/R8: 位点提交失败重试与告警" "scripts/fault_injection/v2_commit_failure.sh"
 run_step "R28/R30: 位点与元数据损坏恢复" "scripts/fault_injection/v2_v30_corruption.sh"
 

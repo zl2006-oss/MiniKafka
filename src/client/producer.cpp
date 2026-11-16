@@ -193,15 +193,47 @@ void ProduceChunk(BrokerConnection* connection, const std::string& topic,
     }
 
     if (response.error_code != StatusCode::kOk) {
-      // 请求级错误（topic_not_found / invalid_partition）：不重试。
-      for (std::size_t i = 0; i < pending.size(); ++i) {
-        EntryResult result;
-        result.partition = partition;
-        result.ok = false;
-        result.code = response.error_code;
-        (*results)[global_indices[pending[i]]] = result;
+      // 请求级错误分两类：D-04 的队列背压以 broker_unavailable 返回，属于可重试
+      // 条件（R3/R24）；topic_not_found / invalid_partition 这类校验错误不重试。
+      if (!IsRetryable(response.error_code)) {
+        for (std::size_t i = 0; i < pending.size(); ++i) {
+          EntryResult result;
+          result.partition = partition;
+          result.ok = false;
+          result.code = response.error_code;
+          (*results)[global_indices[pending[i]]] = result;
+        }
+        return;
       }
-      return;
+      if (attempt >= retries || NowMs() - started > timeout_ms) {
+        for (std::size_t i = 0; i < pending.size(); ++i) {
+          EntryResult result;
+          result.partition = partition;
+          result.ok = false;
+          result.code = response.error_code;
+          (*results)[global_indices[pending[i]]] = result;
+        }
+        *exhausted = true;
+        return;
+      }
+      ++attempt;
+      if (sink != nullptr) {
+        sink->WriteEvent("{\"event\":\"retry\",\"index\":" +
+                         Number(global_indices[pending.front()]) +
+                         ",\"partition\":" + Number(partition) +
+                         ",\"attempt\":" +
+                         Number(static_cast<std::uint64_t>(attempt)) +
+                         ",\"error\":" +
+                         Quote(common::StatusCodeToString(
+                             response.error_code)) +
+                         "}");
+      }
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(backoff_ms * attempt));
+      if (!connection->connected()) {
+        (void)connection->Reconnect();
+      }
+      continue;
     }
 
     if (response.results.size() != pending.size()) {
