@@ -26,10 +26,12 @@ std::uint32_t PartitionKeyFor(const std::string& topic,
 PartitionManager::PartitionManager(std::string data_dir,
                                    std::uint64_t segment_bytes,
                                    std::uint64_t disk_threshold_bytes,
-                                   std::size_t worker_count)
+                                   std::size_t worker_count,
+                                   std::uint64_t max_record_bytes)
     : data_dir_(std::move(data_dir)),
       segment_bytes_(segment_bytes),
       disk_threshold_bytes_(disk_threshold_bytes),
+      max_record_bytes_(max_record_bytes),
       pool_(worker_count),
       topics_(std::make_shared<const TopicTable>()) {
   workers_.reserve(pool_.worker_count());
@@ -110,8 +112,8 @@ common::Status PartitionManager::OpenPartition(
     return path_status;
   }
 
-  StatusOr<PartitionStore> opened =
-      PartitionStore::Open(directory, segment_bytes_, disk_threshold_bytes_);
+  StatusOr<PartitionStore> opened = PartitionStore::Open(
+      directory, segment_bytes_, disk_threshold_bytes_, max_record_bytes_);
   if (!opened.ok()) {
     AddWarning("partition open failed: " + topic + "/" +
                std::to_string(partition) + ": " + opened.status().message());

@@ -201,7 +201,8 @@ common::Status Broker::Start() {
   partitions_.reset(new PartitionManager(config_.data_dir,
                                          config_.segment_bytes,
                                          config_.disk_threshold_bytes,
-                                         config_.storage_workers));
+                                         config_.storage_workers,
+                                         config_.max_record_bytes));
   service_.reset(new PartitionService(partitions_.get()));
 
   // R7：恢复完成才对外服务。此处仍在单线程内，登记分区归属 worker 是安全的。

@@ -48,6 +48,9 @@ std::string RecordLine(const std::string& topic, std::uint32_t partition,
 // 错误码 → 进程退出码：用法类 2，业务/校验类 3（03 §3.4）。
 int ExitCodeFor(const common::Status& status);
 
+// R3/R24：投递类错误可重试；校验类（超限、非法参数等）不重试。
+bool IsRetryable(common::StatusCode code);
+
 // 命令入口：返回进程退出码（0/2/3/4）。
 int RunTopicCreate(const std::vector<std::string>& tokens);
 int RunTopicList(const std::vector<std::string>& tokens);

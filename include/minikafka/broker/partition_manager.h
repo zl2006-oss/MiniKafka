@@ -27,7 +27,9 @@ class PartitionManager {
  public:
   PartitionManager(std::string data_dir, std::uint64_t segment_bytes,
                    std::uint64_t disk_threshold_bytes,
-                   std::size_t worker_count);
+                   std::size_t worker_count,
+                   std::uint64_t max_record_bytes =
+                       storage::kMaxRecordSize);
 
   PartitionManager(const PartitionManager&) = delete;
   PartitionManager& operator=(const PartitionManager&) = delete;
@@ -79,6 +81,7 @@ class PartitionManager {
   std::string data_dir_;
   std::uint64_t segment_bytes_;
   std::uint64_t disk_threshold_bytes_;
+  std::uint64_t max_record_bytes_;
   storage::StorageWorkerPool pool_;
   std::vector<storage::StorageWorker> workers_;
 

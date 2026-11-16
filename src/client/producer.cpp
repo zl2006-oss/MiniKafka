@@ -54,19 +54,6 @@ Status ConnectDefault(BrokerConnection* connection) {
   return connection->Connect(address.host, address.port);
 }
 
-// 可重试错误（R3/R24）：投递类；校验类不重试。
-bool IsRetryable(StatusCode code) {
-  switch (code) {
-    case StatusCode::kDiskFull:
-    case StatusCode::kBrokerUnavailable:
-    case StatusCode::kStorageIoError:
-    case StatusCode::kStorageUnavailable:
-      return true;
-    default:
-      return false;
-  }
-}
-
 std::vector<std::string> SplitLines(const std::string& text) {
   std::vector<std::string> lines;
   std::string current;
@@ -314,6 +301,7 @@ int RunProduce(const std::vector<std::string>& tokens) {
   args.AddInt("retries", common::kDefaultRetries);
   args.AddInt("retry-backoff-ms", common::kDefaultRetryBackoffMs);
   args.AddInt("retry-timeout-ms", common::kDefaultRetryTimeoutMs);
+  args.AddString("max-record-bytes", std::to_string(kMaxRecordBytes));
   args.AddString("message", "");
   args.AddString("file", "");
   const Status parsed = args.Parse(tokens);
@@ -329,6 +317,15 @@ int RunProduce(const std::vector<std::string>& tokens) {
       args.GetInt("retry-timeout-ms") <= 0) {
     sink.WriteError(Status(StatusCode::kUsage,
                            "retries/backoff must be >= 0 and timeout > 0"));
+    return 2;
+  }
+
+  // R17：客户端默认按 1 MiB 预拒；可调低以与 Broker 配置对齐（上限仍为 1 MiB）。
+  std::uint64_t max_record_bytes = 0;
+  if (!ParseU64(args.GetString("max-record-bytes"), &max_record_bytes) ||
+      max_record_bytes == 0u || max_record_bytes > kMaxRecordBytes) {
+    sink.WriteError(Status(StatusCode::kUsage,
+                           "--max-record-bytes must be in 1..1048576"));
     return 2;
   }
 
@@ -353,7 +350,7 @@ int RunProduce(const std::vector<std::string>& tokens) {
       results[i] = result;
       continue;
     }
-    if (RecordTooLarge(message)) {
+    if (RecordTooLarge(message, static_cast<std::size_t>(max_record_bytes))) {
       EntryResult result;
       result.ok = false;
       result.code = StatusCode::kMessageTooLarge;

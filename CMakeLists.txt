@@ -206,4 +206,15 @@ if(BUILD_TESTING)
   )
   target_link_libraries(mk_client_tests PRIVATE mk_client)
   add_test(NAME client_unit COMMAND mk_client_tests)
+
+  add_executable(mk_bench_tests
+    test/unit/test_bench_main.cpp
+    test/unit/test_bench_stats.cpp
+  )
+  target_include_directories(mk_bench_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/unit
+  )
+  target_link_libraries(mk_bench_tests PRIVATE mk_bench)
+  add_test(NAME bench_unit COMMAND mk_bench_tests)
 endif()

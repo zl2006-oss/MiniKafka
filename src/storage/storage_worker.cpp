@@ -16,6 +16,7 @@ PartitionStore::PartitionStore(std::string directory, PartitionState state,
                                std::uint64_t truncated_bytes,
                                std::uint64_t segment_bytes,
                                std::uint64_t disk_threshold,
+                               std::uint64_t max_record_bytes,
                                std::unique_ptr<SegmentSet> segments)
     : directory_(std::move(directory)),
       state_(state),
@@ -23,12 +24,13 @@ PartitionStore::PartitionStore(std::string directory, PartitionState state,
       truncated_bytes_(truncated_bytes),
       segment_bytes_(segment_bytes),
       disk_threshold_(disk_threshold),
+      max_record_bytes_(max_record_bytes),
       segments_(std::move(segments)),
       low_space_(false) {}
 
 common::StatusOr<PartitionStore> PartitionStore::Open(
     const std::string& partition_dir, std::uint64_t segment_bytes,
-    std::uint64_t disk_threshold_bytes) {
+    std::uint64_t disk_threshold_bytes, std::uint64_t max_record_bytes) {
   if (partition_dir.empty()) {
     return StatusOr<PartitionStore>(
         Status(StatusCode::kInternalError, "empty partition directory"));
@@ -48,7 +50,7 @@ common::StatusOr<PartitionStore> PartitionStore::Open(
     return StatusOr<PartitionStore>(PartitionStore(
         partition_dir, PartitionState::kUnavailable, info.warning,
         info.truncated_bytes, segment_bytes, disk_threshold_bytes,
-        std::move(none)));
+        max_record_bytes, std::move(none)));
   }
 
   StatusOr<SegmentSet> segments =
@@ -61,7 +63,8 @@ common::StatusOr<PartitionStore> PartitionStore::Open(
 
   PartitionStore store(partition_dir, PartitionState::kReady, info.warning,
                        info.truncated_bytes, segment_bytes,
-                       disk_threshold_bytes, std::move(owner));
+                       disk_threshold_bytes, max_record_bytes,
+                       std::move(owner));
   (void)store.RefreshDiskSpace();
   return StatusOr<PartitionStore>(std::move(store));
 }
@@ -74,6 +77,17 @@ common::Status PartitionStore::Append(const Record& record,
   if (state_ != PartitionState::kReady || !segments_) {
     return Status(StatusCode::kStorageUnavailable,
                   "partition is unavailable: " + warning_);
+  }
+
+  // R17：Broker 端可配置上限（默认 1 MiB，受 S-09/P-08 约束不超过 1 MiB）。
+  const std::uint64_t record_size =
+      static_cast<std::uint64_t>(kRecordHeaderSize) +
+      static_cast<std::uint64_t>(record.key.size()) +
+      static_cast<std::uint64_t>(record.value.size());
+  if (record_size > max_record_bytes_) {
+    return Status(StatusCode::kMessageTooLarge,
+                  "record_size exceeds configured limit " +
+                      std::to_string(max_record_bytes_) + " bytes");
   }
 
   // R16：写前预检，不写任何字节就返回 disk_full。

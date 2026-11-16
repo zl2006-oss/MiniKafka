@@ -84,7 +84,7 @@ ProduceResponse PartitionService::Produce(
     record.value = request.entries[i].value;
 
     std::uint64_t offset = 0;
-    // Append 内部先做磁盘空间预检（R16），再编码校验（R17）并顺序追加（R2/R27）。
+    // Append 内部先做记录上限校验（R17），再做磁盘空间预检（R16），最后顺序追加（R2/R27）。
     const Status append_status = store->Append(record, &offset);
     if (!append_status.ok()) {
       result.status = 1u;

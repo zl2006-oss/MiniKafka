@@ -11,6 +11,7 @@
 #include "minikafka/broker/service.h"
 #include "minikafka/common/status.h"
 #include "minikafka/protocol/messages.h"
+#include "minikafka/storage/record.h"
 
 namespace {
 
@@ -48,9 +49,11 @@ ProduceRequest MakeProduce(const std::string& topic, std::uint32_t partition,
 }
 
 // 打开一个含 topic=t（2 分区）的管理器；失败返回 false。
-bool OpenManager(const std::string& data_dir, PartitionManager** out) {
-  PartitionManager* manager =
-      new PartitionManager(data_dir, kSegmentBytes, kDiskThreshold, 2u);
+bool OpenManager(const std::string& data_dir, PartitionManager** out,
+                 std::uint64_t max_record_bytes =
+                     minikafka::storage::kMaxRecordSize) {
+  PartitionManager* manager = new PartitionManager(
+      data_dir, kSegmentBytes, kDiskThreshold, 2u, max_record_bytes);
   const minikafka::common::Status status = manager->OpenTopic("t", 2u);
   if (!status.ok()) {
     delete manager;
@@ -200,6 +203,46 @@ void TestProduceBlocksAfterFailure() {
   MK_EXPECT_EQ(fetched.error_code, StatusCode::kOk);
   MK_EXPECT_EQ(fetched.log_end_offset, 0u);
   MK_EXPECT_TRUE(fetched.records.empty());
+  delete manager;
+}
+
+// R17：Broker 端 --max-record-bytes 调低后，超限条目被拒且不占 offset。
+void TestProduceConfiguredRecordLimit() {
+  mk_test::storage_test::TempDir dir;
+  MK_EXPECT_TRUE(dir.ok());
+  if (!dir.ok()) {
+    return;
+  }
+  PartitionManager* manager = nullptr;
+  MK_EXPECT_TRUE(OpenManager(dir.path(), &manager, 64u));
+  if (manager == nullptr) {
+    return;
+  }
+  PartitionService service(manager);
+
+  std::vector<ProduceEntry> entries;
+  entries.push_back(MakeEntry("k", std::string(50u, 'v')));
+  entries.push_back(MakeEntry("k", std::string(39u, 'v')));
+  const ProduceResponse response =
+      service.Produce(MakeProduce("t", 0u, entries));
+
+  MK_EXPECT_EQ(response.status, 2u);
+  MK_EXPECT_EQ(response.results.size(), 2u);
+  if (response.results.size() == 2u) {
+    MK_EXPECT_EQ(response.results[0].status, 1u);
+    MK_EXPECT_EQ(response.results[0].error_code, StatusCode::kMessageTooLarge);
+    MK_EXPECT_EQ(response.results[1].status, 2u);
+    MK_EXPECT_EQ(response.results[1].error_code,
+                 StatusCode::kPartitionBlocked);
+  }
+
+  // 失败条目未占 offset：后续恰好 64B 的记录仍从 offset 0 开始。
+  const ProduceResponse ok =
+      service.Produce(MakeProduce("t", 0u, {MakeEntry("k", std::string(39u, 'v'))}));
+  MK_EXPECT_EQ(ok.status, 0u);
+  if (ok.results.size() == 1u) {
+    MK_EXPECT_EQ(ok.results[0].offset, 0u);
+  }
   delete manager;
 }
 
@@ -385,6 +428,7 @@ void TestBrokerService() {
   TestProduceThenFetch();
   TestProduceRequestErrors();
   TestProduceBlocksAfterFailure();
+  TestProduceConfiguredRecordLimit();
   TestFetchBoundaries();
   TestFetchMaxBytes();
   TestReplay();

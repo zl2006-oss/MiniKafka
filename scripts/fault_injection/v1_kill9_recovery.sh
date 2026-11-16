@@ -44,6 +44,7 @@ check_eq() { if [[ "$2" == "$3" ]]; then pass "$1"; else fail "$1 (actual=$2 exp
 mkdir -p "$DATA"
 start_broker
 "$MK" topic create --topic durable --partitions 2 >/dev/null 2>&1
+"$MK" topic create --topic durable_multi --partitions 2 >/dev/null 2>&1
 
 # 3 批 × 10 条，逐条记录 ack 的 offset（R1：页缓存即 ack）。
 ACKED="$WORK/acked.txt"
@@ -56,15 +57,55 @@ done
 ACK_COUNT="$(grep -c '"status":"ok"' "$ACKED")"
 check_eq "3 批共 30 条已 ack" "$ACK_COUNT" "30"
 
+# 多 Producer 并发（V1）：3 个进程同时写，两个撞同一分区、一个写另一分区。
+MULTI_PIDS=()
+MULTI_OUTS=()
+for n in 0 1 2; do
+  part=$((n % 2))
+  out="$WORK/multi-${n}.out"
+  MULTI_OUTS+=("$out")
+  (
+    for i in $(seq 1 10); do
+      printf '{"key":"m","value":"multi-%s-%s"}\n' "$n" "$i"
+    done
+  ) | "$MK" produce --topic durable_multi --partition "$part" >"$out" 2>&1 &
+  MULTI_PIDS+=("$!")
+done
+MULTI_FAILED=0
+for pid in "${MULTI_PIDS[@]}"; do
+  if ! wait "$pid"; then
+    MULTI_FAILED=$((MULTI_FAILED + 1))
+  fi
+done
+check_eq "并发 Producer 全部成功退出" "$MULTI_FAILED" "0"
+MULTI_ACKED=0
+for out in "${MULTI_OUTS[@]}"; do
+  MULTI_ACKED=$((MULTI_ACKED + $(grep -c '"status":"ok"' "$out" || true)))
+done
+check_eq "并发 Producer 共 30 条已 ack" "$MULTI_ACKED" "30"
+
 # --- kill -9：不经过任何清理路径 ---
 kill -9 "$BROKER_PID"
 wait "$BROKER_PID" 2>/dev/null || true
 BROKER_PID=""
 pass "Broker 已被 kill -9"
 
+# V1/R7：注入未 ack 的残缺尾部（模拟崩溃时半条记录），重启必须截断。
+LOG="$DATA/topics/durable/0/00000000000000000000.log"
+SIZE_VALID="$(stat -c %s "$LOG")"
+printf 'PARTIAL-TAIL-DATA' >>"$LOG"
+SIZE_CORRUPT="$(stat -c %s "$LOG")"
+if [[ "$SIZE_CORRUPT" -gt "$SIZE_VALID" ]]; then
+  pass "已注入未 ack 残缺尾部"
+else
+  fail "残缺尾部注入失败"
+fi
+
 # --- 直接重启，无需人工干预 ---
 start_broker
 check_eq "重启后 ready" "$(grep -c '"ready"' "$WORK/broker.log")" "1"
+check_eq "残缺尾部被截断到最后一条有效记录（R7）" \
+  "$(stat -c %s "$LOG")" "$SIZE_VALID"
 
 # 已 ack 消息必须全部可读，且 offset 连续 0..29。
 "$MK" replay --topic durable --partition 0 >"$WORK/replay.out" 2>&1
@@ -81,6 +122,20 @@ if diff -q "$WORK/acked.offsets" "$WORK/replay.offsets" >/dev/null; then
 else
   fail "已 ack 的 offset 与读回不一致"
 fi
+
+# 多 Producer 并发写入的 ack 也必须全部可读（partition 0=20 条，partition 1=10 条）。
+"$MK" replay --topic durable_multi --partition 0 >"$WORK/multi-p0.out" 2>&1
+"$MK" replay --topic durable_multi --partition 1 >"$WORK/multi-p1.out" 2>&1
+check_eq "并发写入 partition 0 可读 20 条" \
+  "$(grep -c '"topic":"durable_multi"' "$WORK/multi-p0.out" || true)" "20"
+check_eq "并发写入 partition 1 可读 10 条" \
+  "$(grep -c '"topic":"durable_multi"' "$WORK/multi-p1.out" || true)" "10"
+MULTI_EXPECTED="$(seq 0 19 | tr '\n' ' ')"
+MULTI_ACTUAL="$(sed 's/.*"offset":\([0-9]*\).*/\1/' "$WORK/multi-p0.out" | tr '\n' ' ')"
+check_eq "并发写入 partition 0 offset 连续" "$MULTI_ACTUAL" "$MULTI_EXPECTED"
+MULTI_EXPECTED="$(seq 0 9 | tr '\n' ' ')"
+MULTI_ACTUAL="$(sed 's/.*"offset":\([0-9]*\).*/\1/' "$WORK/multi-p1.out" | tr '\n' ' ')"
+check_eq "并发写入 partition 1 offset 连续" "$MULTI_ACTUAL" "$MULTI_EXPECTED"
 
 # 重启后可继续写入，offset 从 30 接续（R27：已写消息 offset 不因重启改变）。
 printf '{"key":"k","value":"after-restart"}\n' \

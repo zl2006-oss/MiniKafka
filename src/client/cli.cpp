@@ -188,6 +188,18 @@ int ExitCodeFor(const common::Status& status) {
   }
 }
 
+bool IsRetryable(StatusCode code) {
+  switch (code) {
+    case StatusCode::kDiskFull:
+    case StatusCode::kBrokerUnavailable:
+    case StatusCode::kStorageIoError:
+    case StatusCode::kStorageUnavailable:
+      return true;
+    default:
+      return false;
+  }
+}
+
 void PrintTopicUsage() {
   std::cout << "usage: minikafka topic <create|list> [options]\n"
             << "  topic create --topic <name> --partitions <1..16>\n"
@@ -202,6 +214,7 @@ void PrintProduceUsage() {
       << "  --retries <n>                重试次数，默认 3\n"
       << "  --retry-backoff-ms <n>       重试间隔，默认 100\n"
       << "  --retry-timeout-ms <n>       总超时，默认 5000\n"
+      << "  --max-record-bytes <n>       单条记录上限，默认/上限 1048576\n"
       << "  --message '<json>' | --file <path> | stdin\n";
 }
 

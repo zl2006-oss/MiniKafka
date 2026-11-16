@@ -29,6 +29,8 @@ struct BrokerConfig {
   std::size_t storage_workers = 0;  // 0 = 按 CPU 数取默认
   std::uint64_t segment_bytes = 256u * 1024u * 1024u;
   std::uint64_t disk_threshold_bytes = 256u * 1024u * 1024u;  // Q-P11
+  // R17：单条存储记录上限；默认 1 MiB。受 S-09/P-08 约束，取值 1..1 MiB。
+  std::size_t max_record_bytes = 1024u * 1024u;
   std::size_t queue_high_watermark = 4096;
   std::size_t queue_low_watermark = 1024;
   int queue_push_timeout_ms = 200;  // 队列满时投递等待上限，超时回 broker_unavailable

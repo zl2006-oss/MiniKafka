@@ -45,10 +45,11 @@ common::Status ParseMessageLine(const std::string& line, std::size_t index,
   return Status();
 }
 
-bool RecordTooLarge(const RawMessage& message) {
+bool RecordTooLarge(const RawMessage& message,
+                    std::size_t max_record_bytes) {
   const std::size_t record_size =
       kRecordHeaderSize + message.key.size() + message.value.size();
-  return record_size > kMaxRecordBytes;
+  return record_size > max_record_bytes;
 }
 
 }  // namespace client

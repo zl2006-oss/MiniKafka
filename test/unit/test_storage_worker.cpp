@@ -322,6 +322,37 @@ void TestWorkerAddAndFind() {
   MK_EXPECT_EQ(worker.partitions().size(), 1u);
 }
 
+// R17：Broker 端上限可调低；超限不占 offset。
+void TestPartitionStoreConfiguredRecordLimit() {
+  mk_test::storage_test::TempDir root;
+  MK_EXPECT_TRUE(root.ok());
+  if (!root.ok()) {
+    return;
+  }
+
+  StatusOr<PartitionStore> opened =
+      PartitionStore::Open(root.path() + "/limit", kTestSegmentBytes,
+                           kTestDiskThreshold, 64u);
+  MK_EXPECT_TRUE(opened.ok());
+  if (!opened.ok()) {
+    return;
+  }
+  PartitionStore store = std::move(opened).value();
+
+  std::uint64_t offset = 0u;
+  const Status too_large =
+      store.Append(MakeRecord("k", std::string(50u, 'v')), &offset);
+  MK_EXPECT_FALSE(too_large.ok());
+  MK_EXPECT_TRUE(too_large.code() == StatusCode::kMessageTooLarge);
+  MK_EXPECT_EQ(store.next_offset(), 0u);
+
+  // 24B 头 + 1B key + 39B value = 64B，恰好等于配置上限。
+  MK_EXPECT_TRUE(
+      store.Append(MakeRecord("k", std::string(39u, 'v')), &offset).ok());
+  MK_EXPECT_EQ(offset, 0u);
+  MK_EXPECT_EQ(store.next_offset(), 1u);
+}
+
 }  // namespace
 
 void TestStorageWorker() {
@@ -330,6 +361,7 @@ void TestStorageWorker() {
   TestPartitionStoreRollsAcrossSegments();
   TestPartitionStoreDiskFullRejectsWrite();
   TestPartitionStoreUnavailable();
+  TestPartitionStoreConfiguredRecordLimit();
   TestWorkerAffinity();
   TestWorkerAddAndFind();
 }

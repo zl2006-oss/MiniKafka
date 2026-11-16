@@ -11,6 +11,7 @@
 #include "minikafka/common/defaults.h"
 #include "minikafka/common/event_sink.h"
 #include "minikafka/common/status.h"
+#include "minikafka/storage/record.h"
 
 namespace {
 
@@ -87,6 +88,7 @@ int RunBrokerCommand(const std::vector<std::string>& tokens) {
   args.AddInt("min-free-space-mb", minikafka::common::kDefaultMinFreeSpaceMb);
   args.AddString("segment-bytes",
                  std::to_string(minikafka::common::kDefaultSegmentBytes));
+  args.AddString("max-record-bytes", "1048576");
   args.AddString("log-level", minikafka::common::kDefaultLogLevel);
 
   const Status parsed = args.Parse(tokens);
@@ -127,6 +129,18 @@ int RunBrokerCommand(const std::vector<std::string>& tokens) {
     return 2;
   }
 
+  // R17：默认 1 MiB；S-09/P-08 把协议上限固定为 1 MiB，因此只允许调低。
+  std::uint64_t max_record_bytes = 0;
+  if (!minikafka::client::ParseU64(args.GetString("max-record-bytes"),
+                                  &max_record_bytes) ||
+      max_record_bytes == 0u ||
+      max_record_bytes > minikafka::storage::kMaxRecordSize) {
+    sink.WriteError(Status(
+        StatusCode::kUsage,
+        "--max-record-bytes must be in 1..1048576"));
+    return 2;
+  }
+
   const std::string log_level = args.GetString("log-level");
   if (log_level != "warn" && log_level != "info" && log_level != "debug") {
     sink.WriteError(
@@ -140,6 +154,7 @@ int RunBrokerCommand(const std::vector<std::string>& tokens) {
   config.io_threads = static_cast<std::size_t>(io_threads);
   config.storage_workers = static_cast<std::size_t>(storage_threads);
   config.segment_bytes = segment_bytes;
+  config.max_record_bytes = static_cast<std::size_t>(max_record_bytes);
   config.disk_threshold_bytes =
       static_cast<std::uint64_t>(min_free_mb) * 1024u * 1024u;
 
@@ -156,7 +171,8 @@ int RunBrokerCommand(const std::vector<std::string>& tokens) {
                    "\",\"status\":\"running\"}");
   const std::vector<std::string> warnings = broker.warnings();
   for (std::size_t i = 0; i < warnings.size(); ++i) {
-    sink.WriteEvent("{\"event\":\"recovery_warning\",\"detail\":\"" +
+    // D-03：启动期与运行期告警统一为 {"event":"warning","detail":...}。
+    sink.WriteEvent("{\"event\":\"warning\",\"detail\":\"" +
                     EscapeJson(warnings[i]) + "\"}");
   }
   sink.WriteResult("{\"event\":\"ready\"}");
@@ -217,6 +233,7 @@ int main(int argc, char** argv) {
                    "  --storage-threads <n>       同上\n"
                    "  --min-free-space-mb 256     低于此值拒写（disk_full）\n"
                    "  --segment-bytes 268435456   分段大小，下限 2097152\n"
+                   "  --max-record-bytes 1048576  单条记录上限，范围 1..1048576\n"
                    "  --log-level warn|info|debug\n";
       return 0;
     }

@@ -26,10 +26,12 @@ struct RawMessage {
 common::Status ParseMessageLine(const std::string& line, std::size_t index,
                                 RawMessage* out);
 
-// 记录大小口径与 04 §3 一致：24B 头 + key + value，上限 1 MiB（R17）。
+// 记录大小口径与 04 §3 一致：24B 头 + key + value，默认上限 1 MiB（R17）。
 constexpr std::size_t kMaxRecordBytes = 1024u * 1024u;
 
-bool RecordTooLarge(const RawMessage& message);
+// max_record_bytes 由 `produce --max-record-bytes` 提供；默认 1 MiB。
+bool RecordTooLarge(const RawMessage& message,
+                    std::size_t max_record_bytes = kMaxRecordBytes);
 
 }  // namespace client
 }  // namespace minikafka

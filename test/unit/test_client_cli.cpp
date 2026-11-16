@@ -14,6 +14,7 @@ using minikafka::client::Address;
 using minikafka::client::ExitCodeFor;
 using minikafka::client::FromMode;
 using minikafka::client::FromSpec;
+using minikafka::client::IsRetryable;
 using minikafka::client::kMaxRecordBytes;
 using minikafka::client::Number;
 using minikafka::client::ParseAddress;
@@ -164,6 +165,22 @@ void TestRecordTooLarge() {
   MK_EXPECT_FALSE(RecordTooLarge(keyed));
   keyed.value.push_back('x');
   MK_EXPECT_TRUE(RecordTooLarge(keyed));
+
+  // R17：客户端可按 Broker 配置调低上限（默认 1 MiB）。
+  RawMessage small;
+  small.value.assign(100u, 'x');
+  MK_EXPECT_FALSE(RecordTooLarge(small, 1024u));
+  MK_EXPECT_TRUE(RecordTooLarge(small, 100u));
+}
+
+void TestIsRetryable() {
+  MK_EXPECT_TRUE(IsRetryable(StatusCode::kDiskFull));
+  MK_EXPECT_TRUE(IsRetryable(StatusCode::kBrokerUnavailable));
+  MK_EXPECT_TRUE(IsRetryable(StatusCode::kStorageIoError));
+  MK_EXPECT_TRUE(IsRetryable(StatusCode::kStorageUnavailable));
+  MK_EXPECT_FALSE(IsRetryable(StatusCode::kMessageTooLarge));
+  MK_EXPECT_FALSE(IsRetryable(StatusCode::kInvalidPartition));
+  MK_EXPECT_FALSE(IsRetryable(StatusCode::kTopicNotFound));
 }
 
 }  // namespace
@@ -177,4 +194,5 @@ void TestClientCli() {
   TestExitCodeFor();
   TestParseMessageLine();
   TestRecordTooLarge();
+  TestIsRetryable();
 }

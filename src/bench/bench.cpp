@@ -3,12 +3,12 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <iostream>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include "minikafka/bench/stats.h"
 #include "minikafka/client/cli.h"
 #include "minikafka/client/connection.h"
 #include "minikafka/common/args.h"
@@ -44,21 +44,6 @@ bool WantsHelp(const std::vector<std::string>& tokens) {
     }
   }
   return false;
-}
-
-std::string Fixed(double value) {
-  char buffer[32];
-  std::snprintf(buffer, sizeof(buffer), "%.3f", value);
-  return std::string(buffer);
-}
-
-double Percentile(const std::vector<double>& sorted, double ratio) {
-  if (sorted.empty()) {
-    return 0.0;
-  }
-  const double index = ratio * static_cast<double>(sorted.size() - 1u);
-  const std::size_t rounded = static_cast<std::size_t>(index + 0.5);
-  return sorted[rounded < sorted.size() ? rounded : sorted.size() - 1u];
 }
 
 // 单个 Producer 线程的产出：成功条数、失败请求数、以及每个请求的 ack 延迟样本。

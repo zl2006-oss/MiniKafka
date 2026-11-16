@@ -24,7 +24,8 @@ class PartitionStore {
   // 但 state()=kUnavailable，Append 会拒绝，ReadAt 仍可尝试。
   static common::StatusOr<PartitionStore> Open(
       const std::string& partition_dir, std::uint64_t segment_bytes,
-      std::uint64_t disk_threshold_bytes);
+      std::uint64_t disk_threshold_bytes,
+      std::uint64_t max_record_bytes = kMaxRecordSize);
 
   // R16：每批追加前预检可用空间；低于阈值返回 disk_full，不写任何字节。
   common::Status Append(const Record& record, std::uint64_t* offset);
@@ -47,6 +48,7 @@ class PartitionStore {
   PartitionStore(std::string directory, PartitionState state,
                  std::string warning, std::uint64_t truncated_bytes,
                  std::uint64_t segment_bytes, std::uint64_t disk_threshold,
+                 std::uint64_t max_record_bytes,
                  std::unique_ptr<SegmentSet> segments);
 
   std::string directory_;
@@ -55,6 +57,7 @@ class PartitionStore {
   std::uint64_t truncated_bytes_;
   std::uint64_t segment_bytes_;
   std::uint64_t disk_threshold_;
+  std::uint64_t max_record_bytes_;
   std::unique_ptr<SegmentSet> segments_;
   bool low_space_;
 };
